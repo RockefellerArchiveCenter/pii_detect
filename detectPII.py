@@ -26,6 +26,17 @@ class PDFProcess:
         self.device = TextConverter(rsrcmgr, self.retstr, codec='utf-8', laparams=LAParams())
         self.interpreter = PDFPageInterpreter(rsrcmgr, self.device)
 
+    def format_text(self):
+        """
+        Gets page text from a PDF page. Truncates open file's size and moves it back to beginning.
+
+        returns (string): PDF page text.
+        """
+        page_text = self.retstr.getvalue()
+        self.retstr.truncate(0)
+        self.retstr.seek(0)
+        return page_text
+
     def get_pdf_text(self, path):
         """
         Extracts text from a pdf and stores the text as a string element in a list.
@@ -42,19 +53,11 @@ class PDFProcess:
                                       PDF_PAGE_SETTINGS['password'],
                                       PDF_PAGE_SETTINGS['caching'],
                                       check_extractable=True))
-        text = (self.retstr.getvalue() for page in pages)
-        #for page in PDFPage.get_pages(fp,
-                                      #PDF_PAGE_SETTINGS['pagenos'],
-                                      #PDF_PAGE_SETTINGS['maxpages'],
-                                      #PDF_PAGE_SETTINGS['password'],
-                                      #PDF_PAGE_SETTINGS['caching'],
-                                      #check_extractable=True):
-            #self.interpreter.process_page(page)
-            #text = self.retstr.getvalue()
-            #self.retstr.truncate(0)
-            #self.retstr.seek(0)
-            #print(text)
-        fp.close()
+        text = (self.format_text() for page in pages)
+        return text, fp
+
+    def cleanup(self, filepath):
+        filepath.close()
         self.device.close()
         self.retstr.close()
 
@@ -93,7 +96,7 @@ class ComprehendDetect:
                     entity['filename'] = filename.name
                     csv_writer.writerow(entity)
         except ClientError:
-            logger.exception("Couldn't detect PII entities.")
+            logger.exception("Couldn't detect Social Security Number PII entities.")
             raise
 
 def main():
@@ -105,31 +108,24 @@ def main():
         help='A directory path and filename to save the csv report to.')
     args = parser.parse_args()
 
-    matches =[]
     extract_text = PDFProcess()
     comp_detect = ComprehendDetect()
 
     report = Path(args.report_dir).joinpath('PII_Matches.csv')
     columns = ['Score', 'Type', 'BeginOffset', 'EndOffset', 'string', 'filename']
-    pdf_files = Path(args.pdf_dir)
-    #file = Path('/Users/pgalligan/Documents/OCR_PDF/FA386a_S205D_B13_F191.pdf')
-    with open(report, 'w') as csvfile:
+    pdf_dir = Path(args.pdf_dir)
+    with open(report, 'a') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames = columns)
         writer.writeheader()
-        #pii = comp_detect.detect_pii('social security 678-56-2365', 'en', file, writer)
-        if Path(args.pdf_dir).is_dir() and Path(args.report_dir).is_dir():
-            for file in pdf_files.iterdir():
-                if not file.stem.startswith('.'):
-                    text = extract_text.get_pdf_text(file)
-                    #for item in text:
-                        #pii = comp_detect.detect_pii(item, 'en', file, writer)
-                        #if len(pii) > 0:
-                            #matches.append(pii)
-
-        #else:
-            #raise Exception("Invalid directory path entered for PDF or Report directory.")
-        #if len(matches) == 0:
-            #print('No SSN matches found.')
+        if Path(pdf_dir).is_dir() and Path(args.report_dir).is_dir():
+            pdf_files = (file for file in pdf_dir.glob('**/*.pdf'))
+            for file in pdf_files:
+                text, filepath = extract_text.get_pdf_text(file)
+                for page in text:
+                    comp_detect.detect_pii(page, 'en', file, writer)
+            extract_text.cleanup(filepath)
+        else:
+            raise Exception("Invalid directory path entered for PDF or Report directory.")
 
 if __name__ == "__main__":
     main()
