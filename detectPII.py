@@ -23,14 +23,8 @@ class PDFProcess:
     def __init__(self):
         rsrcmgr = PDFResourceManager()
         self.retstr = StringIO()
-        codec = 'utf-8'
-        laparams = LAParams()
-        self.device = TextConverter(rsrcmgr, self.retstr, codec=codec, laparams=laparams)
+        self.device = TextConverter(rsrcmgr, self.retstr, codec='utf-8', laparams=LAParams())
         self.interpreter = PDFPageInterpreter(rsrcmgr, self.device)
-        self.password = ""
-        self.maxpages = 0
-        self.caching = True
-        self.pagenos=set()
 
     def get_pdf_text(self, path):
         """
@@ -40,19 +34,29 @@ class PDFProcess:
 
         returns (list): The list of page strings.
         """
-        pages = []
-        file = Path(path)
-        fp = open(file, 'rb')
-        for page in PDFPage.get_pages(fp, self.pagenos, maxpages=self.maxpages, password=self.password, caching=self.caching, check_extractable=True):
-            self.interpreter.process_page(page)
-            text = self.retstr.getvalue()
-            pages.append(text)
-            self.retstr.truncate(0)
-            self.retstr.seek(0)
+        fp = open(path, 'rb')
+        PDF_PAGE_SETTINGS = {'maxpages':0, 'password':'', 'caching':True, 'pagenos':set()}
+        pages = (self.interpreter.process_page(page) for page in PDFPage.get_pages(fp,
+                                      PDF_PAGE_SETTINGS['pagenos'],
+                                      PDF_PAGE_SETTINGS['maxpages'],
+                                      PDF_PAGE_SETTINGS['password'],
+                                      PDF_PAGE_SETTINGS['caching'],
+                                      check_extractable=True))
+        text = (self.retstr.getvalue() for page in pages)
+        #for page in PDFPage.get_pages(fp,
+                                      #PDF_PAGE_SETTINGS['pagenos'],
+                                      #PDF_PAGE_SETTINGS['maxpages'],
+                                      #PDF_PAGE_SETTINGS['password'],
+                                      #PDF_PAGE_SETTINGS['caching'],
+                                      #check_extractable=True):
+            #self.interpreter.process_page(page)
+            #text = self.retstr.getvalue()
+            #self.retstr.truncate(0)
+            #self.retstr.seek(0)
+            #print(text)
         fp.close()
         self.device.close()
         self.retstr.close()
-        return pages
 
 class ComprehendDetect:
     """Encapsulates Comprehend detection functions."""
@@ -67,7 +71,7 @@ class ComprehendDetect:
                                         region_name=self.config.get('AWS', 'REGION'))
         self.comprehend_client = session.client('comprehend')
 
-    def detect_pii(self, text, language_code, filename):
+    def detect_pii(self, text, language_code, filename, csv_writer):
         """
         Detects personally identifiable information (PII) in a document. PII can be
         things like names, account numbers, or addresses.
@@ -75,10 +79,10 @@ class ComprehendDetect:
         text (string): The document to inspect.
         language_code (string): The language of the document.
         filename (path object): Path object of a pdf file.
+        csv_writer (class): A DictWriter class object.
 
         returns (list): The list of PII entities along with their confidence scores.
         """
-        entities = []
         try:
             response = self.comprehend_client.detect_pii_entities(
                 Text=text, LanguageCode=language_code)
@@ -87,12 +91,10 @@ class ComprehendDetect:
                     matching_text = text[entity['BeginOffset']:entity['EndOffset']]
                     entity['string'] = matching_text
                     entity['filename'] = filename.name
-                    entities.append(entity)
+                    csv_writer.writerow(entity)
         except ClientError:
             logger.exception("Couldn't detect PII entities.")
             raise
-        else:
-            return entities
 
 def main():
     parser = argparse.ArgumentParser(
@@ -106,29 +108,28 @@ def main():
     matches =[]
     extract_text = PDFProcess()
     comp_detect = ComprehendDetect()
+
     report = Path(args.report_dir).joinpath('PII_Matches.csv')
+    columns = ['Score', 'Type', 'BeginOffset', 'EndOffset', 'string', 'filename']
     pdf_files = Path(args.pdf_dir)
-    report_columns = ['Score', 'Type', 'BeginOffset', 'EndOffset', 'string', 'filename']
+    #file = Path('/Users/pgalligan/Documents/OCR_PDF/FA386a_S205D_B13_F191.pdf')
+    with open(report, 'w') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames = columns)
+        writer.writeheader()
+        #pii = comp_detect.detect_pii('social security 678-56-2365', 'en', file, writer)
+        if Path(args.pdf_dir).is_dir() and Path(args.report_dir).is_dir():
+            for file in pdf_files.iterdir():
+                if not file.stem.startswith('.'):
+                    text = extract_text.get_pdf_text(file)
+                    #for item in text:
+                        #pii = comp_detect.detect_pii(item, 'en', file, writer)
+                        #if len(pii) > 0:
+                            #matches.append(pii)
 
-    if Path(args.pdf_dir).is_dir() and Path(args.report_dir).is_dir():
-        for file in pdf_files.iterdir():
-            if not file.stem.startswith('.'):
-                text = extract_text.get_pdf_text(file)
-                for item in text:
-                    pii = comp_detect.detect_pii(item, 'en', file)
-                    if len(pii) > 0:
-                        matches.append(pii)
-
-        with open(report, 'w') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames = report_columns)
-                writer.writeheader()
-                for match in matches:
-                    for response in match:
-                        writer.writerow(response)
-    else:
-        raise Exception("Invalid directory path entered for PDF or Report directory.")
-    if len(matches) == 0:
-        print('No SSN matches found.')
+        #else:
+            #raise Exception("Invalid directory path entered for PDF or Report directory.")
+        #if len(matches) == 0:
+            #print('No SSN matches found.')
 
 if __name__ == "__main__":
     main()
