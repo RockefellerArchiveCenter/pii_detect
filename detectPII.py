@@ -19,7 +19,7 @@ from textwrap import wrap
 
 logger = logging.getLogger('PDFProcess')
 logger.setLevel(logging.INFO)
-fh = logging.FileHandler('Unsearchable_Pages.log')
+fh = logging.FileHandler('PII_Logging.log')
 fh.setLevel(logging.INFO)
 logger.addHandler(fh)
 
