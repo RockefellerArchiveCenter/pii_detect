@@ -53,6 +53,7 @@ class PDFProcess:
         returns (list): The list of page strings.
         """
         page_number = 0
+        pdf_pages = []
         with open(path, 'rb') as fp:
             PDF_PAGE_SETTINGS = {'maxpages':0, 'password':'', 'caching':True, 'pagenos':set()}
             for page in PDFPage.get_pages(fp,
@@ -63,9 +64,11 @@ class PDFProcess:
                                           check_extractable=True):
                 page_number = page_number + 1
                 if 'Font' in page.resources.keys():
-                    yield self.get_page_text(page)
+                    page_text = self.get_page_text(page)
+                    pdf_pages.append(page_text)
                 else:
                     logger.info('No searchable text on page {} of {}.'.format(page_number, str(path)))
+            return pdf_pages
 
     def cleanup(self):
         self.device.close()
