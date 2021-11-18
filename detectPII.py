@@ -17,7 +17,11 @@ from pathlib import Path
 
 from textwrap import wrap
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('PDFProcess')
+logger.setLevel(logging.INFO)
+fh = logging.FileHandler('PII_Logging.log')
+fh.setLevel(logging.INFO)
+logger.addHandler(fh)
 
 class PDFProcess:
     def __init__(self):
@@ -48,6 +52,8 @@ class PDFProcess:
 
         returns (list): The list of page strings.
         """
+        page_number = 0
+        pdf_pages = []
         with open(path, 'rb') as fp:
             PDF_PAGE_SETTINGS = {'maxpages':0, 'password':'', 'caching':True, 'pagenos':set()}
             for page in PDFPage.get_pages(fp,
@@ -56,7 +62,13 @@ class PDFProcess:
                                           PDF_PAGE_SETTINGS['password'],
                                           PDF_PAGE_SETTINGS['caching'],
                                           check_extractable=True):
-                yield self.get_page_text(page)
+                page_number = page_number + 1
+                if 'Font' in page.resources.keys():
+                    page_text = self.get_page_text(page)
+                    pdf_pages.append(page_text)
+                else:
+                    logger.info('No searchable text on page {} of {}.'.format(page_number, str(path)))
+            return pdf_pages
 
     def cleanup(self):
         self.device.close()
@@ -124,9 +136,12 @@ def main():
             pdf_files = (file for file in pdf_dir.glob('**/*.pdf'))
             for file in pdf_files:
                 pdf_text = extract_text.get_pdf_text(file)
-                for pdf_page in pdf_text:
-                    for result in comp_detect.detect_pii(pdf_page, 'en', file):
-                        writer.writerow(result)
+                if len(list(pdf_text)) == 0:
+                    logger.info('No OCR text in {}.'.format(str(file)))
+                else:
+                    for pdf_page in pdf_text:
+                        for result in comp_detect.detect_pii(pdf_page, 'en', file):
+                            writer.writerow(result)
             extract_text.cleanup()
         else:
             raise Exception("Invalid directory path entered for PDF or Report directory.")
