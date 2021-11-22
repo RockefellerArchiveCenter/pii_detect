@@ -12,16 +12,14 @@ from pdfminer.converter import TextConverter
 from pdfminer.layout import LAParams
 from pdfminer.pdfpage import PDFPage
 from io import StringIO
-from pprint import pprint
 from pathlib import Path
-
-from textwrap import wrap
 
 logger = logging.getLogger('PDFProcess')
 logger.setLevel(logging.INFO)
 fh = logging.FileHandler('PII_Logging.log')
 fh.setLevel(logging.INFO)
 logger.addHandler(fh)
+
 
 class PDFProcess:
     def __init__(self):
@@ -55,7 +53,7 @@ class PDFProcess:
         page_number = 0
         pdf_pages = []
         with open(path, 'rb') as fp:
-            PDF_PAGE_SETTINGS = {'maxpages':0, 'password':'', 'caching':True, 'pagenos':set()}
+            PDF_PAGE_SETTINGS = {'maxpages': 0, 'password': '', 'caching': True, 'pagenos': set()}
             for page in PDFPage.get_pages(fp,
                                           PDF_PAGE_SETTINGS['pagenos'],
                                           PDF_PAGE_SETTINGS['maxpages'],
@@ -74,8 +72,10 @@ class PDFProcess:
         self.device.close()
         self.retstr.close()
 
+
 class ComprehendDetect:
     """Encapsulates Comprehend detection functions."""
+
     def __init__(self):
         """
         comprehend_client: A Boto3 Comprehend client.
@@ -96,7 +96,7 @@ class ComprehendDetect:
         language_code (string): The language of the document.
         filename (path object): Path object of a pdf file.
 
-        returns (list): The list of PII entities along with their confidence scores.
+        yields: PII entities with a type of 'SSN'.
         """
         try:
             response = self.comprehend_client.detect_pii_entities(
@@ -114,13 +114,14 @@ class ComprehendDetect:
         except ClientError as error:
             raise error
 
+
 def main():
     parser = argparse.ArgumentParser(
         description='Use pdminer.six and AWS Comprehend to extract text from PDF files and scan for PII.')
     parser.add_argument('pdf_dir',
-        help='A directory containing PDF files for scanning.')
+                        help='A directory containing PDF files for scanning.')
     parser.add_argument('report_dir',
-        help='A directory path and filename to save the csv report to.')
+                        help='A directory path and filename to save the csv report to.')
     args = parser.parse_args()
 
     extract_text = PDFProcess()
@@ -130,7 +131,7 @@ def main():
     columns = ['Score', 'Type', 'BeginOffset', 'EndOffset', 'String', 'Filename']
     pdf_dir = Path(args.pdf_dir)
     with open(report, 'a') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames = columns)
+        writer = csv.DictWriter(csvfile, fieldnames=columns)
         writer.writeheader()
         if Path(pdf_dir).is_dir() and Path(args.report_dir).is_dir():
             pdf_files = (file for file in pdf_dir.glob('**/*.pdf'))
@@ -145,6 +146,7 @@ def main():
             extract_text.cleanup()
         else:
             raise Exception("Invalid directory path entered for PDF or Report directory.")
+
 
 if __name__ == "__main__":
     main()
