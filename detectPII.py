@@ -96,7 +96,7 @@ class ComprehendDetect:
         language_code (string): The language of the document.
         filename (path object): Path object of a pdf file.
 
-        returns (list): The list of PII entities along with their confidence scores.
+        yields: PII entities with a type of 'SSN'.
         """
         try:
             response = self.comprehend_client.detect_pii_entities(
