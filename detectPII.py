@@ -136,13 +136,20 @@ def main():
         if Path(pdf_dir).is_dir() and Path(args.report_dir).is_dir():
             pdf_files = (file for file in pdf_dir.glob('**/*.pdf'))
             for file in pdf_files:
+                print(str(file))
                 pdf_text = extract_text.get_pdf_text(file)
                 if len(list(pdf_text)) == 0:
                     logger.info('No OCR text in {}.'.format(str(file)))
                 else:
                     for pdf_page in pdf_text:
-                        for result in comp_detect.detect_pii(pdf_page, 'en', file):
-                            writer.writerow(result)
+                        if len(pdf_page.encode('utf-8')) > 5000:
+                            page_parts = [pdf_page[:len(pdf_page)//2]] + [pdf_page[len(pdf_page)//2:]]
+                            for part in page_parts:
+                                for result in comp_detect.detect_pii(part, 'en', file):
+                                    writer.writerow(result)
+                        else:
+                            for result in comp_detect.detect_pii(pdf_page, 'en', file):
+                                writer.writerow(result)
             extract_text.cleanup()
         else:
             raise Exception("Invalid directory path entered for PDF or Report directory.")
