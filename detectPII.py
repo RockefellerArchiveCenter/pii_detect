@@ -157,8 +157,9 @@ def main():
             print(str(pdf_target))
             try:
                 pdf_text = extract_text.get_pdf_text(pdf_target)
-            except struct.error as e:
-                logger.info('%f failed with %e.' % (str(pdf_target), e))
+            except Exception as e:
+                print('Failed!')
+                logger.info('{} failed with {}.'.format(str(file), e))
             process_text(pdf_text, pdf_target, writer)
             extract_text.cleanup()
         elif Path(pdf_target).is_dir() and Path(pdf_target).exists() and not args.single:
@@ -167,8 +168,9 @@ def main():
                 print(str(file))
                 try:
                     pdf_text = extract_text.get_pdf_text(file)
-                except struct.error as e:
-                    logger.info('%f failed with %e.' % (str(file), e))
+                except Exception as e:
+                    print('Failed!')
+                    logger.info('{} failed with {}.'.format(str(file), e))
                     continue
                 process_text(pdf_text, file, writer)
             extract_text.cleanup()
