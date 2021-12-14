@@ -180,7 +180,8 @@ def main():
         if Path(pdf_target).is_file() and Path(pdf_target).exists() and args.single:
             print(str(pdf_target))
             pdf_text = text_extractor.compile_pdf_text(pdf_target)
-            process_text(pdf_text, pdf_target, writer)
+            if pdf_text is not None:
+                process_text(pdf_text, pdf_target, writer)
             text_extractor.cleanup()
         elif Path(pdf_target).is_dir() and Path(pdf_target).exists() and not args.single:
             pdf_files = (file for file in pdf_target.glob('**/*.pdf'))
