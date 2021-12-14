@@ -14,6 +14,8 @@ from pdfminer.pdfpage import PDFPage
 from io import StringIO
 from pathlib import Path
 
+from struct import error as StructError
+
 logger = logging.getLogger('PDFProcess')
 logger.setLevel(logging.INFO)
 fh = logging.FileHandler('PII_Logging.log')
@@ -68,6 +70,19 @@ class PDFProcess:
                     logger.info('No searchable text on page {} of {}.'.format(page_number, str(path)))
             return pdf_pages
 
+    def compile_pdf_text(self, pdf_file):
+        """
+        Tries to run pdf exception and logs struct errors if they come up.
+
+        pdf_file (path object): Path object of a pdf file.
+
+        returns (list): The list of page strings.
+        """
+        try:
+            return self.get_pdf_text(pdf_file)
+        except StructError as e:
+            logger.info('{} failed with {}.'.format(str(pdf_file), e))
+
     def cleanup(self):
         self.device.close()
         self.retstr.close()
@@ -114,14 +129,23 @@ class ComprehendDetect:
         except ClientError as error:
             raise error
 
+
 def process_text(text, pdf_file, csv_writer):
+    """
+    Checks length of string, splits it if over 5000 bytes, runs it against AWS,
+    and writes results, if any.
+
+    text (string): String representation of PDF page contents.
+    pdf_file (path object): Path object of a pdf file.
+    csv_writer (class): Instantiated CSV writer class.
+    """
     comp_detect = ComprehendDetect()
     if len(list(text)) == 0:
         logger.info('No OCR text in {}.'.format(str(pdf_file)))
     else:
         for pdf_page in text:
             if len(pdf_page.encode('utf-8')) > 5000:
-                page_parts = [pdf_page[:len(pdf_page)//2]] + [pdf_page[len(pdf_page)//2:]]
+                page_parts = [pdf_page[:4000].rsplit(' ', 1)[0]]
                 for part in page_parts:
                     for result in comp_detect.detect_pii(part, 'en', pdf_file):
                         csv_writer.writerow(result)
@@ -142,7 +166,7 @@ def main():
                         action='store_true')
     args = parser.parse_args()
 
-    extract_text = PDFProcess()
+    text_extractor = PDFProcess()
 
     if Path(args.report_dir).is_dir() and Path(args.report_dir).exists():
         report = Path(args.report_dir).joinpath('PII_Matches.csv')
@@ -155,25 +179,19 @@ def main():
         writer.writeheader()
         if Path(pdf_target).is_file() and Path(pdf_target).exists() and args.single:
             print(str(pdf_target))
-            try:
-                pdf_text = extract_text.get_pdf_text(pdf_target)
-            except Exception as e:
-                print('Failed!')
-                logger.info('{} failed with {}.'.format(str(file), e))
+            pdf_text = text_extractor.compile_pdf_text(pdf_target)
             process_text(pdf_text, pdf_target, writer)
-            extract_text.cleanup()
+            text_extractor.cleanup()
         elif Path(pdf_target).is_dir() and Path(pdf_target).exists() and not args.single:
             pdf_files = (file for file in pdf_target.glob('**/*.pdf'))
             for file in pdf_files:
                 print(str(file))
-                try:
-                    pdf_text = extract_text.get_pdf_text(file)
-                except Exception as e:
-                    print('Failed!')
-                    logger.info('{} failed with {}.'.format(str(file), e))
+                pdf_text = text_extractor.compile_pdf_text(file)
+                if pdf_text is None:
                     continue
-                process_text(pdf_text, file, writer)
-            extract_text.cleanup()
+                else:
+                    process_text(pdf_text, file, writer)
+            text_extractor.cleanup()
         elif Path(pdf_target).is_dir() and Path(pdf_target).exists() and args.single:
             print('Please target a single PDF file when running with the --single option.')
         else:
