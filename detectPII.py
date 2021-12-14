@@ -114,45 +114,68 @@ class ComprehendDetect:
         except ClientError as error:
             raise error
 
+def process_text(text, pdf_file, csv_writer):
+    comp_detect = ComprehendDetect()
+    if len(list(text)) == 0:
+        logger.info('No OCR text in {}.'.format(str(pdf_file)))
+    else:
+        for pdf_page in text:
+            if len(pdf_page.encode('utf-8')) > 5000:
+                page_parts = [pdf_page[:len(pdf_page)//2]] + [pdf_page[len(pdf_page)//2:]]
+                for part in page_parts:
+                    for result in comp_detect.detect_pii(part, 'en', pdf_file):
+                        csv_writer.writerow(result)
+            else:
+                for result in comp_detect.detect_pii(pdf_page, 'en', pdf_file):
+                    csv_writer.writerow(result)
+
 
 def main():
     parser = argparse.ArgumentParser(
         description='Use pdminer.six and AWS Comprehend to extract text from PDF files and scan for PII.')
-    parser.add_argument('pdf_dir',
-                        help='A directory containing PDF files for scanning.')
+    parser.add_argument('pdf_target',
+                        help='A pdf file or directory containing PDF files for scanning.')
     parser.add_argument('report_dir',
                         help='A directory path and filename to save the csv report to.')
+    parser.add_argument('--single',
+                        help='Option to run the script on a single PDF file.',
+                        action='store_true')
     args = parser.parse_args()
 
     extract_text = PDFProcess()
-    comp_detect = ComprehendDetect()
 
-    report = Path(args.report_dir).joinpath('PII_Matches.csv')
+    if Path(args.report_dir).is_dir() and Path(args.report_dir).exists():
+        report = Path(args.report_dir).joinpath('PII_Matches.csv')
+    else:
+        raise Exception("Invalid directory path entered for Report directory.")
     columns = ['Score', 'Type', 'BeginOffset', 'EndOffset', 'String', 'Filename']
-    pdf_dir = Path(args.pdf_dir)
+    pdf_target = Path(args.pdf_target)
     with open(report, 'a') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=columns)
         writer.writeheader()
-        if Path(pdf_dir).is_dir() and Path(args.report_dir).is_dir():
-            pdf_files = (file for file in pdf_dir.glob('**/*.pdf'))
+        if Path(pdf_target).is_file() and Path(pdf_target).exists() and args.single:
+            print(str(pdf_target))
+            try:
+                pdf_text = extract_text.get_pdf_text(pdf_target)
+            except struct.error as e:
+                logger.info('%f failed with %e.' % (str(pdf_target), e))
+            process_text(pdf_text, pdf_target, writer)
+            extract_text.cleanup()
+        elif Path(pdf_target).is_dir() and Path(pdf_target).exists() and not args.single:
+            pdf_files = (file for file in pdf_target.glob('**/*.pdf'))
             for file in pdf_files:
                 print(str(file))
-                pdf_text = extract_text.get_pdf_text(file)
-                if len(list(pdf_text)) == 0:
-                    logger.info('No OCR text in {}.'.format(str(file)))
-                else:
-                    for pdf_page in pdf_text:
-                        if len(pdf_page.encode('utf-8')) > 5000:
-                            page_parts = [pdf_page[:len(pdf_page)//2]] + [pdf_page[len(pdf_page)//2:]]
-                            for part in page_parts:
-                                for result in comp_detect.detect_pii(part, 'en', file):
-                                    writer.writerow(result)
-                        else:
-                            for result in comp_detect.detect_pii(pdf_page, 'en', file):
-                                writer.writerow(result)
+                try:
+                    pdf_text = extract_text.get_pdf_text(file)
+                except struct.error as e:
+                    logger.info('%f failed with %e.' % (str(file), e))
+                    continue
+                process_text(pdf_text, file, writer)
             extract_text.cleanup()
+        elif Path(pdf_target).is_dir() and Path(pdf_target).exists() and args.single:
+            print('Please target a single PDF file when running with the --single option.')
         else:
-            raise Exception("Invalid directory path entered for PDF or Report directory.")
+            raise Exception("Invalid directory or file path entered for PDF location.")
 
 
 if __name__ == "__main__":
